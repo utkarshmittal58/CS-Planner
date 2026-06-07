@@ -4,7 +4,7 @@ const ONE_DAY = 24 * 60 * 60 * 1000;
 
 const DEFAULT_START = "2026-06-08";
 const DEFAULT_MAX_HOURS = 10;
-const MAX_SUBJECTS_PER_DAY = 3;
+const MIN_SUBJECTS_PER_DAY = 3;
 const COMPLETED_STORAGE_KEY = "cs-study-planner-completed-v2";
 const NOTES_STORAGE_KEY = "cs-study-planner-notes-v1";
 const PRIORITY_STORAGE_KEY = "cs-study-planner-priority-v1";
@@ -245,18 +245,22 @@ function buildSchedule({ startDate, maxHours, includeSundays, selectedGroups, cu
     const subjectsToday = new Set();
 
     while (capacity > 0.01) {
-      const task = queue.find((item) => {
+      const isEligible = (item) => {
         const started = !item.startsOn || cursor >= item.startsOn;
         const beforeExam = cursor < item.exam;
         const allowedByWeeklyRule = !(item.sixDaysWeek && isSunday);
-        const subjectAlreadyUsed = subjectsToday.has(item.subjectId);
-        const subjectSlotAvailable = subjectAlreadyUsed || subjectsToday.size < MAX_SUBJECTS_PER_DAY;
-        return item.remaining > 0.01 && started && beforeExam && allowedByWeeklyRule && subjectSlotAvailable;
-      });
+        return item.remaining > 0.01 && started && beforeExam && allowedByWeeklyRule;
+      };
+
+      const unusedEligible = queue.filter((item) => isEligible(item) && !subjectsToday.has(item.subjectId));
+      const needsNewSubject = subjectsToday.size < MIN_SUBJECTS_PER_DAY && unusedEligible.length > 0;
+      const task = needsNewSubject ? unusedEligible[0] : queue.find(isEligible);
 
       if (!task) break;
 
-      const hrs = Math.min(capacity, task.remaining);
+      const remainingNewSubjectSlots = Math.min(MIN_SUBJECTS_PER_DAY - subjectsToday.size, unusedEligible.length);
+      const spreadLimit = needsNewSubject && remainingNewSubjectSlots > 0 ? capacity / remainingNewSubjectSlots : capacity;
+      const hrs = Math.min(capacity, spreadLimit, task.remaining);
       const rounded = Math.round(hrs * 10) / 10;
       entries.push({ ...task, hoursToday: rounded });
       subjectsToday.add(task.subjectId);
@@ -1169,7 +1173,7 @@ function App() {
           <div className="hero-meta">
             <span>{groupLabel}</span>
             <span>{maxHours || 0} hrs/day</span>
-            <span>{MAX_SUBJECTS_PER_DAY} subjects/day</span>
+            <span>Min {MIN_SUBJECTS_PER_DAY} subjects/day</span>
             <span>Sundays {includeSundays ? "included" : "off"}</span>
             <span>Tax from 20 Jun, 6 days/week</span>
             <span>{examCount} exams</span>
